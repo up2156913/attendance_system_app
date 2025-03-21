@@ -1,0 +1,14 @@
+cookie:
+  expiry_days: 30
+  key: some_signature_key
+  name: some_cookie_name
+credentials:
+  usernames:
+    Rasheed:
+      email: opeyemitemz282@gmail.com
+      name: Ra Id
+      password: $2b$12$soo85gJHStC1ISj5kClLK.aDXadDGuzysn6engL64jGFcWa3HR9ku
+    admin:
+      email: attendancesystem282@gmail.com
+      name: Admin User
+      password: $2b$12$0bsL1GKdzRSEvwH874ZJ6ORgqwrNIEP26ghpKLT5jcAcxr9/ecXf6
