@@ -66,21 +66,33 @@ def retrive_data(name):
             
         retrive_series = retrive_series.apply(process_embedding)
         
-        # Verify embedding dimensions
-        first_embedding = retrive_series.iloc[0] if len(retrive_series) > 0 else None
-        if first_embedding is not None:
-            print(f"Embedding dimension after processing: {len(first_embedding)}")
-        
-        # Split the name_role into separate columns
+        # Split the name_role_subject into separate columns
         retrive_df = retrive_series.to_frame().reset_index()
-        retrive_df.columns = ['name_role', 'Facial_features']
-        retrive_df[['Name', 'Role']] = retrive_df['name_role'].str.split('@', expand=True)
+        retrive_df.columns = ['name_role_subject', 'Facial_features']
         
-        return retrive_df[['Name', 'Role', 'Facial_features']]
+        # Split the string by @ and check the number of parts
+        parts = retrive_df['name_role_subject'].str.split('@', expand=True)
+        
+        if parts.shape[1] == 2:  # Old format: name@role
+            retrive_df['Name'] = parts[0]
+            retrive_df['Role'] = parts[1]
+            retrive_df['Subject'] = 'Not Enrolled'  # Default value
+        elif parts.shape[1] == 3:  # New format: name@role@subject
+            retrive_df['Name'] = parts[0]
+            retrive_df['Role'] = parts[1]
+            retrive_df['Subject'] = parts[2]
+        else:
+            # Handle unexpected format
+            retrive_df['Name'] = parts[0]
+            retrive_df['Role'] = 'Unknown'
+            retrive_df['Subject'] = 'Not Enrolled'
+        
+        return retrive_df[['Name', 'Role', 'Subject', 'Facial_features']]
         
     except Exception as e:
         print(f"Error retrieving data from Redis: {e}")
-        return pd.DataFrame(columns=['Name', 'Role', 'Facial_features'])
+        # Return empty DataFrame with correct columns
+        return pd.DataFrame(columns=['Name', 'Role', 'Subject', 'Facial_features'])
 
 # configure face analysis
 faceapp = FaceAnalysis(name='buffalo_sc', root='insightface_model', providers = ['CPUExecutionProvider'])
@@ -91,7 +103,7 @@ faceapp.prepare(ctx_id = 0, det_size=(640,640), det_thresh = 0.5)
 
 
 def ml_search_algorithm(dataframe, feature_column, test_vector,
-                       name_role=['Name', 'Role'], thresh=0.3):
+                       name_role=['Name', 'Role', 'Subject'], thresh=0.3):
     """
     Cosine similarity based search algorithm with improved debugging
     """
@@ -125,56 +137,58 @@ def ml_search_algorithm(dataframe, feature_column, test_vector,
         if max_similarity >= thresh:
             person_name = dataframe.iloc[best_match_idx]['Name']
             person_role = dataframe.iloc[best_match_idx]['Role']
+            person_subject = dataframe.iloc[best_match_idx]['Subject']
             print(f"Match found: {person_name}")
+            return person_name, person_role, person_subject
         else:
             person_name = 'Unknown'
             person_role = 'Unknown'
+            person_subject = 'Unknown'
             print("No match found above threshold")
+            return person_name, person_role, person_subject
             
     except Exception as e:
         print(f"Error in ml_search_algorithm: {e}")
         person_name = 'Unknown'
         person_role = 'Unknown'
-        
-    return person_name, person_role
+        person_subject = 'Unknown'
+        return person_name, person_role, person_subject
 
 ##Real Time Predidction
 # we need to save logs for every 1 mins
 
 class RealTimePred:
     def __init__(self):
-        self.logs = dict(name=[],role=[],current_time=[])
+        self.logs = dict(name=[], role=[], subject=[], current_time=[])
         
     def reset_dict(self):
-        self.logs = dict(name=[],role=[],current_time=[])
+        self.logs = dict(name=[], role=[], subject=[], current_time=[])
     
     def saveLogs_redis(self):
         # step-1: create a logs dataframe
         dataframe = pd.DataFrame(self.logs)        
         # step-2: drop the duplicate information (distinct name)
-        dataframe.drop_duplicates('name',inplace=True) 
+        dataframe.drop_duplicates('name', inplace=True) 
         # step-3: push data to redis database (list)
         # encode the data
         name_list = dataframe['name'].tolist()
         role_list = dataframe['role'].tolist()
+        subject_list = dataframe['subject'].tolist()
         ctime_list = dataframe['current_time'].tolist()
         encoded_data = []
 
-        for name, role, ctime in zip(name_list, role_list, ctime_list):
+        for name, role, subject, ctime in zip(name_list, role_list, subject_list, ctime_list):
             if name != 'Unknown':
-                concat_string = f"{name}@{role}@{ctime}"
+                concat_string = f"{name}@{role}@{subject}@{ctime}"
                 encoded_data.append(concat_string)
                 
-        if len(encoded_data) >0:
-            r.lpush('attendance:logs',*encoded_data)
+        if len(encoded_data) > 0:
+            r.lpush('attendance:logs', *encoded_data)
         
-                    
-        self.reset_dict()     
+        self.reset_dict()
 
-
-
-    def face_prediction(self,test_image, dataframe, feature_column,
-                    name_role=['Name', 'Role'], thresh=0.3):
+    def face_prediction(self, test_image, dataframe, feature_column,
+                    selected_subject=None, name_role=['Name', 'Role', 'Subject'], thresh=0.3):
         try:
             current_time = str(datetime.now())
             results = faceapp.get(test_image)
@@ -195,7 +209,7 @@ class RealTimePred:
                     embeddings = res['embedding']
                     print(f"\nProcessing face at ({x1}, {y1})")
                     
-                    person_name, person_role = ml_search_algorithm(dataframe,
+                    person_name, person_role, person_subject = ml_search_algorithm(dataframe,
                                                                 feature_column,
                                                                 test_vector=embeddings,
                                                                 name_role=name_role,
@@ -234,9 +248,14 @@ class RealTimePred:
                     
                     cv2.putText(test_copy, current_time, (x1, y1 - 30), font, font_scale, (255, 255, 255), thickness)
 
-                    # Save logs
+                    # Save logs with subject info
                     self.logs['name'].append(person_name)
                     self.logs['role'].append(person_role)
+                    # Use the selected subject for attendance if provided, otherwise use the person's enrolled subject
+                    if selected_subject:
+                        self.logs['subject'].append(selected_subject)
+                    else:
+                        self.logs['subject'].append(person_subject)
                     self.logs['current_time'].append(current_time)
 
                     
@@ -277,11 +296,14 @@ class RegistrationForm:
             
         return frame, embeddings
     
-    def save_data_in_redis_db(self,name,role):
+    def save_data_in_redis_db(self,name,role, subject=None):
         #validation name
         if name is not None:
             if name.strip() != '':
-                key = f'{name}@{role}'
+                if subject and subject != '--select--':
+                    key = f'{name}@{role}@{subject}'
+                else:
+                    key = f'{name}@{role}@Not Enrolled'
             else:
                 return 'name_false'
         else:

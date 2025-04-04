@@ -2,6 +2,10 @@ import pandas as pd
 import streamlit as st
 from Home import face_rec
 import datetime
+from check_authentication import check_auth
+
+# Check authentication before proceeding
+check_auth()
 
 st.set_page_config(page_title='Reporting', layout='wide')
 
@@ -23,7 +27,15 @@ with tab1:
         # Retrive the data from Redis Database
         with st.spinner('Retriving Data from Redis DB ...'):    
             redis_face_db = face_rec.retrive_data(name='academy:register')
-            st.dataframe(redis_face_db[['Name','Role']])
+
+            ds_students = redis_face_db[redis_face_db['Subject'] == 'Distributed Systems']
+            ba_students = redis_face_db[redis_face_db['Subject'] == 'Business Analytics']
+            
+            st.subheader("Distributed Systems Enrolled Students")
+            st.dataframe(ds_students[['Name', 'Role']])
+            
+            st.subheader("Business Analytics Enrolled Students")
+            st.dataframe(ba_students[['Name', 'Role']])
 
 with tab2:
     if st.button('Refresh Logs'):
@@ -32,77 +44,56 @@ with tab2:
 
 with tab3:
     st.subheader('Attendance Report')
-
-    # load logs into attribute logs_list
-    logs_list = load_logs(name=name)
-
-    # step -1: convert the logs that in list of bytes into list of string
-    convert_byte_to_string = lambda x: x.decode('utf-8')
-    logs_list_string = list(map(convert_byte_to_string, logs_list))
-
-    # step -2: split string by @ and create nested list
-    split_string = lambda x: x.split('@')
-    logs_nested_list = list(map(split_string, logs_list_string))
-    # convert nested list info into dataframe
-
-    logs_df = pd.DataFrame(logs_nested_list, columns= ['Name','Role','Timestamp'])
-
-    # Step -3 Time based Analysis or Report
-    #logs_df['Timestamp'] = pd.to_datetime(logs_df['Timestamp'])
-    logs_df['Timestamp'] = logs_df['Timestamp'].apply(lambda x: x.split('.')[0])
-    logs_df['Timestamp'] = pd.to_datetime(logs_df['Timestamp'])
-    logs_df['Date'] = logs_df['Timestamp'].dt.date
-
-
-    # step -3.1 : Cal. Intime and Outtime
-    # In time: At which person is first detected in that day (min Timestamp of the date)
-    # Out time: At which person is last detected in that day (Max Timestamp of the date)
-
-    report_df = logs_df.groupby(by=['Date','Name','Role']).agg(
-        In_time = pd.NamedAgg('Timestamp','min'), # in time 
-        Out_time = pd.NamedAgg('Timestamp','max') # out time
-    ).reset_index()
-
-    report_df['In_time']  = pd.to_datetime(report_df['In_time'])
-    report_df['Out_time']  = pd.to_datetime(report_df['Out_time'])
-
-    report_df['Duration'] = report_df['Out_time'] - report_df['In_time']
-
-    # Step 4: Marking Person is Present or Absent
-    all_dates = report_df['Date'].unique()
-    name_role = report_df[['Name','Role']].drop_duplicates().values.tolist()
-
-    date_name_rol_zip = []
-    for dt in all_dates:
-        for name, role in name_role:
-            date_name_rol_zip.append([dt, name, role])
-
-    date_name_rol_zip_df = pd.DataFrame(date_name_rol_zip, columns=['Date','Name','Role'])
-    # left join with report_df
-
-    date_name_rol_zip_df = pd.merge(date_name_rol_zip_df, report_df, how='left',on=['Date','Name','Role'])
-
-    # Duration
-    # Hours
-    date_name_rol_zip_df['Duration_seconds'] = date_name_rol_zip_df['Duration'].dt.seconds
-    date_name_rol_zip_df['Duration_hours'] = date_name_rol_zip_df['Duration_seconds'] / (60*60)
-
-    def status_marker(x):
-
-        if pd.Series(x).isnull().all():
-            return 'Absent'
-        
-        elif x >= 0 and x < 9:
-            return 'Absent (Less than 9 secs)'
     
-
-        elif x >= 10:
-            return 'Present' 
-        
+    # Subject selection for attendance report
+    selected_subject = st.selectbox(
+        "Select Subject",
+        options=["Distributed Systems", "Business Analytics"]
+    )
     
-    date_name_rol_zip_df['Status'] = date_name_rol_zip_df['Duration_seconds'].apply(status_marker)
-
-
-
-
-    st.write(date_name_rol_zip_df) # display the logs data in the report.py
+    # Load logs and process
+    logs_list = load_logs(name='attendance:logs')
+    
+    # Convert bytes to string
+    logs_list_string = [log.decode('utf-8') for log in logs_list]
+    
+    # Split string by @ and create nested list
+    logs_nested_list = [log.split('@') for log in logs_list_string]
+    
+    # Convert to dataframe - adjusted for 4 fields instead of 3
+    if len(logs_nested_list) > 0 and len(logs_nested_list[0]) == 3: 
+        logs_df = pd.DataFrame(logs_nested_list, columns=['Name', 'Role', 'Timestamp'])
+        logs_df['Subject'] = 'Not Enrolled'
+    elif len(logs_nested_list) > 0 and len(logs_nested_list[0]) == 4: 
+        logs_df = pd.DataFrame(logs_nested_list, columns=['Name', 'Role', 'Subject', 'Timestamp'])
+    else:
+        logs_df = pd.DataFrame(columns=['Name', 'Role', 'Subject', 'Timestamp'])
+    
+    # Filter for selected subject
+    subject_logs = logs_df[logs_df['Subject'] == selected_subject]
+    
+    # Process timestamps
+    subject_logs['Timestamp'] = subject_logs['Timestamp'].apply(lambda x: x.split('.')[0])
+    subject_logs['Timestamp'] = pd.to_datetime(subject_logs['Timestamp'])
+    subject_logs['Date'] = subject_logs['Timestamp'].dt.date
+    
+    # Create pivoted table with students as rows and dates as columns
+    pivot_table = subject_logs.pivot_table(
+        index='Name',
+        columns='Date',
+        values='Timestamp',
+        aggfunc='count'
+    ).fillna(0)
+    
+    # Convert to present/absent format
+    def format_attendance(value):
+        if value > 0:
+            return "Present ✅"
+        else:
+            return "Absent ❌"
+    
+    formatted_table = pivot_table.applymap(format_attendance)
+    
+    # Display the table
+    st.write(f"Attendance Report for {selected_subject}")
+    st.table(formatted_table)

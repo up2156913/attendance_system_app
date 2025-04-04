@@ -114,6 +114,29 @@ class Authentication:
             yaml.dump(config, file, default_flow_style=False)
             
         return True, "User registered successfully"
+    
+    # In auth.py - add session timeout
+    def initialize_auth_state(self):
+        """Initialize authentication state variables in session state"""
+        if 'authentication_status' not in st.session_state:
+            st.session_state['authentication_status'] = None
+        if 'username' not in st.session_state:
+            st.session_state['username'] = None
+        if 'name' not in st.session_state:
+            st.session_state['name'] = None
+        if 'login_time' not in st.session_state:
+            st.session_state['login_time'] = None
+            
+        # Check for session timeout (e.g., 30 minutes)
+        if st.session_state['authentication_status'] and st.session_state['login_time']:
+            import time
+            current_time = time.time()
+            # 30 minute timeout
+            if current_time - st.session_state['login_time'] > 1800:  
+                st.session_state['authentication_status'] = None
+                st.session_state['username'] = None
+                st.session_state['name'] = None
+                st.session_state['login_time'] = None
 
 
 # Create a global authenticator instance

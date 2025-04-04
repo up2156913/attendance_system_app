@@ -3,11 +3,11 @@ from auth import authenticator
 
 st.set_page_config(page_title=' Attendance System ', page_icon=':bar_chart:', layout='wide', initial_sidebar_state='auto')
 
-# Check authentication status
-auth_status = authenticator.is_authenticated()
+# Make sure authentication state is initialized
+authenticator.initialize_auth_state()
 
-# If not authenticated, show login form
-if not auth_status:
+# Check authentication status
+if not st.session_state['authentication_status']:
     st.title('Smart Attendance System Login')
     authenticator.login('Login', 'main')
     authenticator.show_login_message()

@@ -3,8 +3,11 @@ from auth import authenticator
 import yaml
 from yaml.loader import SafeLoader
 import os
+from check_authentication import check_auth
 
 st.set_page_config(page_title='Admin Portal', layout='wide')
+
+check_auth()
 
 # Authentication is handled in Home.py
 # Check if user is admin

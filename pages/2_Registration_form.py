@@ -4,6 +4,10 @@ import cv2
 import numpy as np
 from streamlit_webrtc import webrtc_streamer
 import av
+from check_authentication import check_auth
+
+# Check authentication before proceeding
+check_auth()
 
 #from auth import authenticator
 
@@ -42,14 +46,9 @@ with st.container(border=True):
     name = st.text_input(label='Name',placeholder='Enter First name and Last name')
     role = st.selectbox(label='Role', placeholder='Select Role', options=('--select--',
                                                                           'Student', 'Teacher'))
-    Course = st.selectbox(label='Select Course', placeholder='Select Course',
-                          options=('--select--','Computer Science',
-                                   'Software Engineering','Computing'))
-    year_level = st.selectbox(label='Year Level', placeholder='Year Level',
-                              options=('--select--', 'I - First Year',
-                                       'II - Second Year',
-                                       'III - Third Year','IV - Fourth Year'))
-    email = st.text_input(label='Email', placeholder='Enter Email Address')
+    subject = st.selectbox(label='Subject Enrollment', options=('--select--', 
+                                                      'Distributed Systems', 
+                                                      'Business Analytics'))
 
     st.write('Click on Start button to collect your face samples')
     with st.expander('Instructions'):
@@ -76,16 +75,11 @@ with st.container(border=True):
 # step-3: save the data in redis database
 
 
-
 if st.button('Submit'):
-    return_val = registration_form.save_data_in_redis_db(name,role)
-    if return_val == True:
-        st.success(f"{name} registered sucessfully")
-    elif return_val == 'name_false':
-        st.error('Please enter the name: Name cannot be empty or spaces')
-        
-    elif return_val == 'file_false':
-        st.error('face_embedding.txt is not found. Please refresh the page and execute again.')
+    if role == '--select--' or subject == '--select--':
+        st.error("Please select both Role and Subject")
+    else:
+        return_val = registration_form.save_data_in_redis_db(name, role, subject)
 
 #else:
 #        authenticator.login('Login', 'main') 

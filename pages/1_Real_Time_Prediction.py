@@ -4,21 +4,42 @@ from streamlit_webrtc import webrtc_streamer
 import av
 import time
 
+from check_authentication import check_auth
+
+# Check authentication before proceeding
+check_auth()
+
 #from auth import authenticator
 
 
 st.set_page_config(page_title='Predictions')
 st.subheader('Real-Time Attendance System')
 
+selected_subject = st.selectbox(
+    "Select Subject for Attendance",
+    options=["Distributed Systems", "Business Analytics"]
+)
 
 
 
 # Retrive data from the database
-with st.spinner('Retriving data from the database...'):
-   redis_face_db = face_rec.retrive_data(name = 'academy:register')
-   st.dataframe(redis_face_db)
-   
-st.success('Data retrived successfully')
+with st.spinner('Retrieving data from the database...'):
+    redis_face_db = face_rec.retrive_data(name='academy:register')
+    
+    # Filter to show only relevant students (optional)
+    if not redis_face_db.empty:
+        try:
+            filtered_db = redis_face_db[redis_face_db['Subject'] == selected_subject]
+            if len(filtered_db) > 0:
+                st.dataframe(filtered_db)
+            else:
+                st.dataframe(redis_face_db)
+                st.info(f"No students enrolled in {selected_subject} yet.")
+        except Exception as e:
+            st.error(f"Error filtering data: {e}")
+            st.dataframe(redis_face_db)
+    else:
+        st.info("No registered users found in the database.")
 
 
 #time
@@ -48,7 +69,7 @@ def video_frame_callback(frame):
         
         # Process the frame
         pred_img = realtimepred.face_prediction(img, redis_face_db,
-                                          'Facial_features', ['Name', 'Role'],
+                                          'Facial_features', selected_subject, ['Name', 'Role', 'Subject'],
                                           thresh=0.5)
         
         timenow = time.time()
