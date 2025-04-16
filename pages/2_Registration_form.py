@@ -6,6 +6,9 @@ from streamlit_webrtc import webrtc_streamer
 import av
 from check_authentication import check_auth
 import redis
+import tempfile
+import os
+from PIL import Image
 
 # Initialize session state variables for unenrollment process
 if 'show_confirmation' not in st.session_state:
@@ -40,6 +43,53 @@ with tab1:
                 np.savetxt(f,embedding)
         
         return av.VideoFrame.from_ndarray(reg_img,format='bgr24')
+    
+    # Function to process uploaded image
+    def process_uploaded_image(uploaded_file):
+        # Create a temporary file to store the uploaded image
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as tmp_file:
+            tmp_file.write(uploaded_file.getvalue())
+            tmp_path = tmp_file.name
+        
+        # Read the image with OpenCV
+        img = cv2.imread(tmp_path)
+        
+        if img is None:
+            st.error("Failed to process the uploaded image. Please try again with a different image.")
+            os.unlink(tmp_path)
+            return
+        
+        # Display the uploaded image
+        st.image(uploaded_file, caption="Uploaded Image", use_column_width=True)
+        
+        # Process image for face embedding
+        results = face_rec.faceapp.get(img, max_num=1)
+        
+        if not results:
+            st.error("No face detected in the uploaded image. Please upload a clearer photo with a visible face.")
+            os.unlink(tmp_path)
+            return
+        
+        # Extract embeddings
+        for res in results:
+            x1, y1, x2, y2 = res['bbox'].astype(int)
+            
+            # Draw rectangle on the image to show detected face
+            cv2_img = img.copy()
+            cv2.rectangle(cv2_img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            st.image(cv2_img, caption="Detected Face", channels="BGR", use_column_width=True)
+            
+            # Get facial embedding
+            embedding = res['embedding']
+            
+            # Save embedding to file (same as webcam process)
+            with open('face_embedding.txt', mode='ab') as f:
+                np.savetxt(f, embedding)
+            
+            st.success(f"Face successfully captured and processed")
+        
+        # Clean up the temp file
+        os.unlink(tmp_path)
 
 
     ####### Registration Form ##########
@@ -92,19 +142,34 @@ with tab1:
         if subject != '--select--':
             st.info(f"Module Code: {module_codes.get(subject, 'N/A')}")
 
-        st.write('Click on Start button to collect your face samples')
-        with st.expander('Instructions'):
-            st.caption('1. Give different expression to capture your face details.')
-            st.caption('2. Click on stop after getting 200 samples.')
-
-        webrtc_streamer(key='registration', video_frame_callback=video_callback_func, 
-                        frontend_rtc_configuration={
-                        "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
-                    },
-                    server_rtc_configuration={
-                        "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
-                    }
-                    )
+        
+        capture_option = st.radio("Choose capture method:", 
+                             ("Webcam", "Upload Image"))
+        
+        if capture_option == "Webcam":
+            st.write('Click on Start button to collect your face samples')
+            with st.expander('Instructions'):
+                st.caption('1. Give different expressions to capture your face details.')
+                st.caption('2. Click on stop after getting 200 samples.')
+            
+            webrtc_streamer(key='registration', video_frame_callback=video_callback_func, 
+                            frontend_rtc_configuration={
+                                "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+                            },
+                            server_rtc_configuration={
+                                "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+                            })
+        else:
+            st.write('Upload a clear image of your face')
+            with st.expander('Instructions'):
+                st.caption('1. Ensure good lighting and a clear view of your face.')
+                st.caption('2. Use a recent photo where your face is clearly visible.')
+                st.caption('3. Avoid wearing accessories that cover facial features.')
+            
+            uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
+            
+            if uploaded_file is not None:
+                process_uploaded_image(uploaded_file)
 
     if st.button('Submit'):
         if role == '--select--' or subject == '--select--':
@@ -113,10 +178,14 @@ with tab1:
             return_val = registration_form.save_data_in_redis_db(name, role, subject, student_id)
             if return_val == True:
                 st.success("Registration completed successfully!")
+                # Clear face_embedding.txt file if it exists
+                if os.path.exists('face_embedding.txt'):
+                    os.remove('face_embedding.txt')
+
             elif return_val == 'name_false':
                 st.error("Please enter a valid name")
             elif return_val == 'file_false':
-                st.error("No facial embeddings captured. Please try again.")
+                st.error("No face data collected. Please capture your face using webcam or upload an image first.")
 
 with tab2:
     st.subheader('Unenroll Users')

@@ -393,14 +393,18 @@ class RegistrationForm:
         x_array = np.loadtxt('face_embedding.txt',dtype=np.float32)
 
         #step-2: convert into array
-        received_samples = int(x_array.size/512)
-        x_array = x_array.reshape(received_samples,512)
-        x_array = np.asarray(x_array)   
-
+        # Check if it's a single embedding or multiple embeddings
+        if x_array.ndim == 1:
+            # Single embedding from uploaded image
+            x_mean = x_array
+        else:
+            # Multiple embeddings from webcam
+            received_samples = int(x_array.size/512)
+            x_array = x_array.reshape(received_samples, 512)
+            x_array = np.asarray(x_array)
+            x_mean = x_array.mean(axis=0)   
 
         #step-3: cal. mean of embeddings
-
-        x_mean = x_array.mean(axis = 0)
         x_mean = x_mean.astype(np.float32)
         x_mean_bytes = x_mean.tobytes()
 

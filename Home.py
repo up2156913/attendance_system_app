@@ -26,3 +26,21 @@ else:
 
     st.success('Model loaded successfully')
     st.success('Redis db connected successfully')
+
+    # Add system information
+    st.subheader("System Information")
+    st.markdown("""
+    **Features:**
+    - Fast and accurate facial recognition
+    - Multiple registration methods (webcam or image upload)
+    - Real-time attendance tracking
+    - Detailed attendance reporting
+    - Role-based access control
+    
+    **Navigation:**
+    - Use the sidebar to navigate between different sections
+    - Registration Form: Register new users with facial data
+    - Real-Time Prediction: Track attendance in real-time
+    - Reports: View and export attendance data
+    - Admin Portal: Manage users (Admin only)
+    """)
