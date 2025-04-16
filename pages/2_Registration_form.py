@@ -118,7 +118,7 @@ with tab1:
             'Robotics'
         ]
         
-        subject = st.selectbox(label='Subject Enrollment', options=subject_options)
+        subject = st.selectbox(label='Module Enrollment', options=subject_options)
 
         # Add a module code display
         module_codes = {
@@ -188,7 +188,7 @@ with tab1:
                 st.error("No face data collected. Please capture your face using webcam or upload an image first.")
 
 with tab2:
-    st.subheader('Unenroll Users')
+    st.subheader('Unenroll Students')
     
     # Connect to Redis Client
     hostname = 'redis-19487.c8.us-east-1-4.ec2.redns.redis-cloud.com'
@@ -221,17 +221,17 @@ with tab2:
     if not registered_users:
         st.info("No registered users found in the system.")
     else:
-        st.write("Select a user to unenroll from the system:")
+        st.write("Select a student to unenroll from the system:")
         
         # Create a selectbox with the display names
-        selected_display = st.selectbox("Select User", options=display_users)
+        selected_display = st.selectbox("Select Student", options=display_users)
         
         # Get the corresponding key for the selected display name
         selected_index = display_users.index(selected_display)
         selected_key = registered_users[selected_index]
         
         # Create a unique key for the "Unenroll User" button
-        if st.button("Unenroll User", key="unenroll_button"):
+        if st.button("Unenroll Student", key="unenroll_button"):
             # Store the selected user in session state to preserve it
             st.session_state['selected_user_key'] = selected_key
             st.session_state['selected_user_display'] = selected_display

@@ -87,7 +87,7 @@ subject_options = [
 ]
 
 selected_subject = st.selectbox(
-    "Select Subject for Attendance",
+    "Select Module for Attendance",
     options=subject_options
 )
 

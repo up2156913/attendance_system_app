@@ -15,13 +15,7 @@ def check_auth():
         st.info("Redirecting to login page...")
         # Add a button to redirect to home
         if st.button("Go to Login Page"):
-            # Create a JavaScript redirect
-            js = """
-            <script>
-                window.parent.location.href = "/";
-            </script>
-            """
-            st.components.v1.html(js)
+            st.switch_page("Home.py")
         
         st.stop()
         return False
