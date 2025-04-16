@@ -45,11 +45,52 @@ with tab1:
     ####### Registration Form ##########
     with st.container(border=True):
         name = st.text_input(label='Name',placeholder='Enter First name and Last name')
+        student_id = st.text_input(label='Student ID', placeholder='Enter Student ID Number')
         role = st.selectbox(label='Role', placeholder='Select Role', options=('--select--',
                                                                             'Student', 'Teacher'))
-        subject = st.selectbox(label='Subject Enrollment', options=('--select--', 
-                                                        'Distributed Systems', 
-                                                        'Business Analytics'))
+        # Updated subject options based on final year modules
+        subject_options = [
+            '--select--',
+            'Distributed Systems',  # Keeping existing options
+            'Business Analytics',
+            'Final Year Project',  # Renamed from Individual Project
+            'COMP Tutorial Level 6',
+            'Theoretical Computer Science',
+            'Advanced Networks',
+            'Artificial Intelligence',
+            'Complex Problem Solving',
+            'Graphics and Computer Vision',
+            'Practical Data Analytics and Mining',
+            'Project Management',
+            'Digital Enterprise and Innovation',
+            'Internet of Things',
+            'IT and Internetworking Security',
+            'Robotics'
+        ]
+        
+        subject = st.selectbox(label='Subject Enrollment', options=subject_options)
+
+        # Add a module code display
+        module_codes = {
+            'Distributed Systems': 'M30225',
+            'Business Analytics': 'M26507',
+            'Final Year Project': 'M24739',
+            'COMP Tutorial Level 6': 'M22733',
+            'Theoretical Computer Science': 'M21276',
+            'Advanced Networks': 'M21279',
+            'Artificial Intelligence': 'M33174',
+            'Complex Problem Solving': 'M33132',
+            'Graphics and Computer Vision': 'M30242',
+            'Practical Data Analytics and Mining': 'M25764',
+            'Project Management': 'M30245',
+            'Digital Enterprise and Innovation': 'M33173',
+            'Internet of Things': 'M30226',
+            'IT and Internetworking Security': 'M33141',
+            'Robotics': 'M30241'
+        }
+        
+        if subject != '--select--':
+            st.info(f"Module Code: {module_codes.get(subject, 'N/A')}")
 
         st.write('Click on Start button to collect your face samples')
         with st.expander('Instructions'):
@@ -69,7 +110,7 @@ with tab1:
         if role == '--select--' or subject == '--select--':
             st.error("Please select both Role and Subject")
         else:
-            return_val = registration_form.save_data_in_redis_db(name, role, subject)
+            return_val = registration_form.save_data_in_redis_db(name, role, subject, student_id)
             if return_val == True:
                 st.success("Registration completed successfully!")
             elif return_val == 'name_false':

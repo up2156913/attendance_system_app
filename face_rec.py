@@ -77,23 +77,34 @@ def retrive_data(name):
             retrive_df['Name'] = parts[0]
             retrive_df['Role'] = parts[1]
             retrive_df['Subject'] = 'Not Enrolled'  # Default value
+            retrive_df['Student_ID'] = ''  # Empty for old format
         elif parts.shape[1] == 3:  # New format: name@role@subject
             retrive_df['Name'] = parts[0]
             retrive_df['Role'] = parts[1]
             retrive_df['Subject'] = parts[2]
+            retrive_df['Student_ID'] = '' # Empty for this format
+        elif parts.shape[1] == 4:  # New format with ID: name@role@subject@id
+            retrive_df['Name'] = parts[0]
+            retrive_df['Role'] = parts[1]
+            retrive_df['Subject'] = parts[2]
+            retrive_df['Student_ID'] = parts[3]
         else:
             # Handle unexpected format
             retrive_df['Name'] = parts[0]
             retrive_df['Role'] = 'Unknown'
             retrive_df['Subject'] = 'Not Enrolled'
+            retrive_df['Student_ID'] = ''
         
-        return retrive_df[['Name', 'Role', 'Subject', 'Facial_features']]
+        # Add original key as a column for reference
+        retrive_df['Original_Key'] = retrive_df['name_role_subject']
+        
+        return retrive_df[['Name', 'Role', 'Subject', 'Student_ID', 'Original_Key', 'Facial_features']]
         
     except Exception as e:
         print(f"Error retrieving data from Redis: {e}")
         # Return empty DataFrame with correct columns
-        return pd.DataFrame(columns=['Name', 'Role', 'Subject', 'Facial_features'])
-
+        return pd.DataFrame(columns=['Name', 'Role', 'Subject', 'Student_ID', 'Original_Key', 'Facial_features'])
+    
 # configure face analysis
 faceapp = FaceAnalysis(name='buffalo_sc', root='insightface_model', providers = ['CPUExecutionProvider'])
 faceapp.prepare(ctx_id = 0, det_size=(640,640), det_thresh = 0.5)
@@ -103,7 +114,7 @@ faceapp.prepare(ctx_id = 0, det_size=(640,640), det_thresh = 0.5)
 
 
 def ml_search_algorithm(dataframe, feature_column, test_vector,
-                       name_role=['Name', 'Role', 'Subject'], thresh=0.3):
+                       name_role=['Name', 'Role', 'Subject', 'Student_ID'], thresh=0.3):
     """
     Cosine similarity based search algorithm with improved debugging
     """
@@ -138,57 +149,89 @@ def ml_search_algorithm(dataframe, feature_column, test_vector,
             person_name = dataframe.iloc[best_match_idx]['Name']
             person_role = dataframe.iloc[best_match_idx]['Role']
             person_subject = dataframe.iloc[best_match_idx]['Subject']
+            person_id = dataframe.iloc[best_match_idx]['Student_ID']
+            original_key = dataframe.iloc[best_match_idx]['Original_Key']
             print(f"Match found: {person_name}")
-            return person_name, person_role, person_subject
+            return person_name, person_role, person_subject, person_id, original_key
         else:
             person_name = 'Unknown'
             person_role = 'Unknown'
             person_subject = 'Unknown'
+            person_id = ''
+            original_key = ''
             print("No match found above threshold")
-            return person_name, person_role, person_subject
+            return person_name, person_role, person_subject, person_id, original_key
             
     except Exception as e:
         print(f"Error in ml_search_algorithm: {e}")
         person_name = 'Unknown'
         person_role = 'Unknown'
         person_subject = 'Unknown'
-        return person_name, person_role, person_subject
+        original_key = ''
+        return person_name, person_role, person_subject, person_id, original_key
 
 ##Real Time Predidction
 # we need to save logs for every 1 mins
 
 class RealTimePred:
     def __init__(self):
-        self.logs = dict(name=[], role=[], subject=[], current_time=[])
+        self.logs = dict(name=[], role=[], subject=[], student_id=[], current_time=[], original_key=[])
         
     def reset_dict(self):
-        self.logs = dict(name=[], role=[], subject=[], current_time=[])
+        self.logs = dict(name=[], role=[], subject=[], student_id=[], current_time=[], original_key=[])
     
     def saveLogs_redis(self):
-        # step-1: create a logs dataframe
-        dataframe = pd.DataFrame(self.logs)        
-        # step-2: drop the duplicate information (distinct name)
-        dataframe.drop_duplicates('name', inplace=True) 
-        # step-3: push data to redis database (list)
-        # encode the data
-        name_list = dataframe['name'].tolist()
-        role_list = dataframe['role'].tolist()
-        subject_list = dataframe['subject'].tolist()
-        ctime_list = dataframe['current_time'].tolist()
-        encoded_data = []
+        try:
+            # step-1: create a logs dataframe
+            dataframe = pd.DataFrame(self.logs)        
+            
+            # Ensure dataframe is not empty
+            if dataframe.empty:
+                print("No logs to save")
+                return
+                
+            # For each unique original_key, keep only the most recent entry
+            # This ensures we don't create duplicate attendance entries for the same registration
+            dataframe = dataframe.sort_values('current_time', ascending=False)
+            dataframe = dataframe.drop_duplicates('original_key', keep='first')
+            
+            # Filter out unknowns
+            dataframe = dataframe[dataframe['name'] != 'Unknown']
+            
+            if dataframe.empty:
+                print("No valid attendance data to save after filtering")
+                return
+            
+            # step-3: push data to redis database (list)
+            # encode the data
+            name_list = dataframe['name'].tolist()
+            role_list = dataframe['role'].tolist()
+            subject_list = dataframe['subject'].tolist()
+            student_id_list = dataframe['student_id'].tolist()
+            ctime_list = dataframe['current_time'].tolist()
+            encoded_data = []
 
-        for name, role, subject, ctime in zip(name_list, role_list, subject_list, ctime_list):
-            if name != 'Unknown':
-                concat_string = f"{name}@{role}@{subject}@{ctime}"
+            for name, role, subject, student_id, ctime in zip(name_list, role_list, subject_list, student_id_list, ctime_list):
+                # Include student_id in the log string if it exists
+                if student_id:
+                    concat_string = f"{name}@{role}@{subject}@{student_id}@{ctime}"
+                else:
+                    concat_string = f"{name}@{role}@{subject}@{ctime}"
                 encoded_data.append(concat_string)
                 
-        if len(encoded_data) > 0:
-            r.lpush('attendance:logs', *encoded_data)
-        
-        self.reset_dict()
+            if len(encoded_data) > 0:
+                r.lpush('attendance:logs', *encoded_data)
+                print(f"Successfully saved {len(encoded_data)} attendance records")
+            else:
+                print("No data to save after encoding")
+        except Exception as e:
+            print(f"Error in saveLogs_redis: {e}")
+        finally:
+            # Always reset the dictionary to prevent duplicating data
+            self.reset_dict()
 
     def face_prediction(self, test_image, dataframe, feature_column,
-                    selected_subject=None, name_role=['Name', 'Role', 'Subject'], thresh=0.3):
+                    selected_subject=None, name_role=['Name', 'Role', 'Subject', 'Student_ID'], thresh=0.3):
         try:
             current_time = str(datetime.now())
             results = faceapp.get(test_image)
@@ -209,11 +252,33 @@ class RealTimePred:
                     embeddings = res['embedding']
                     print(f"\nProcessing face at ({x1}, {y1})")
                     
-                    person_name, person_role, person_subject = ml_search_algorithm(dataframe,
-                                                                feature_column,
-                                                                test_vector=embeddings,
-                                                                name_role=name_role,
-                                                                thresh=thresh)
+                    # Make sure the ml_search_algorithm returns all expected values
+                    result_tuple = ml_search_algorithm(dataframe,
+                                                feature_column,
+                                                test_vector=embeddings,
+                                                name_role=name_role,
+                                                thresh=thresh)
+                    
+                    # Handle different return value counts
+                    if len(result_tuple) == 5:  # New format with original_key
+                        person_name, person_role, person_subject, person_id, original_key = result_tuple
+                    elif len(result_tuple) == 4:
+                        person_name, person_role, person_subject, person_id = result_tuple
+                        original_key = ''
+                    elif len(result_tuple) == 3:
+                        person_name, person_role, person_subject = result_tuple
+                        person_id = ''
+                        original_key = ''
+                    else:
+                        print(f"Unexpected return format from ml_search_algorithm: {result_tuple}")
+                        person_name = 'Unknown'
+                        person_role = 'Unknown'
+                        person_subject = 'Unknown'
+                        person_id = ''
+                        original_key = ''
+                    
+                    # Handle attendance for selected_subject if different from the matched subject
+                    attendance_subject = selected_subject if selected_subject else person_subject
                     
                     # Set color based on recognition result
                     color = (0, 255, 0) if person_name != 'Unknown' else (0, 0, 255)
@@ -221,8 +286,13 @@ class RealTimePred:
                     # Draw rectangle and text
                     cv2.rectangle(test_copy, (x1, y1), (x2, y2), color, 2)
                     
-                    # Add text with background
-                    text = f"{person_name}"
+                    # Add text with background - include student ID if available
+                    if person_id:
+                        text = f"{person_name} (ID: {person_id})"
+                    else:
+                        text = f"{person_name}"
+
+
                     font = cv2.FONT_HERSHEY_SIMPLEX
                     font_scale = 0.7
                     thickness = 2
@@ -248,15 +318,13 @@ class RealTimePred:
                     
                     cv2.putText(test_copy, current_time, (x1, y1 - 30), font, font_scale, (255, 255, 255), thickness)
 
-                    # Save logs with subject info
+                    # Save logs with subject and student ID info
                     self.logs['name'].append(person_name)
                     self.logs['role'].append(person_role)
-                    # Use the selected subject for attendance if provided, otherwise use the person's enrolled subject
-                    if selected_subject:
-                        self.logs['subject'].append(selected_subject)
-                    else:
-                        self.logs['subject'].append(person_subject)
+                    self.logs['subject'].append(attendance_subject)
+                    self.logs['student_id'].append(person_id)
                     self.logs['current_time'].append(current_time)
+                    self.logs['original_key'].append(original_key)
 
                     
                 except Exception as e:
@@ -296,14 +364,21 @@ class RegistrationForm:
             
         return frame, embeddings
     
-    def save_data_in_redis_db(self,name,role, subject=None):
+    def save_data_in_redis_db(self,name,role, subject=None, student_id=None):
         #validation name
         if name is not None:
             if name.strip() != '':
+                # Create key with student_id if provided
                 if subject and subject != '--select--':
-                    key = f'{name}@{role}@{subject}'
+                    if student_id and role == 'Student':
+                        key = f'{name}@{role}@{subject}@{student_id}'
+                    else:
+                        key = f'{name}@{role}@{subject}'
                 else:
-                    key = f'{name}@{role}@Not Enrolled'
+                    if student_id and role == 'Student':
+                        key = f'{name}@{role}@Not Enrolled@{student_id}'
+                    else:
+                        key = f'{name}@{role}@Not Enrolled'
             else:
                 return 'name_false'
         else:
